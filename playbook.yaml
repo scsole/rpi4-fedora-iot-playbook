@@ -1,0 +1,99 @@
+---
+- name: Configure Fedora IoT on Raspberry Pi
+  hosts: edge
+  gather_facts: true
+  vars:
+    user_name: fedora
+    user_full_name: Fedora
+    user_ssh_pub_key: ~/.ssh/id_ed25519.pub
+  tasks:
+    - name: Define hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Add unprivileged user
+      ansible.builtin.user:
+        name: "{{ user_name }}"
+        comment: "{{ user_full_name }}"
+        uid: 1000
+        group: wheel
+        state: present
+
+    - name: Set authorized key for new user
+      ansible.posix.authorized_key:
+        user: "{{ user_name }}"
+        state: present
+        key: "{{ lookup('file', user_ssh_pub_key) }}"
+
+    - name: Set additional authorized keys for new user
+      ansible.posix.authorized_key:
+        user: "{{ user_name }}"
+        state: present
+        key: "{{ lookup('file', item.src) }}"
+      with_filetree: public_keys/
+      when: item.state == 'file'
+      tags: test
+
+    - name: Allow group wheel sudo access no password
+      community.general.sudoers:
+        name: wheel-all
+        group: wheel
+        commands: ALL
+        nopassword: true
+
+    - name: Upgrade the rpm-ostree image, accept all defaults
+      ansible.posix.rpm_ostree_upgrade:
+      register: upgrade_result
+
+    - name: Ensure packages are installed
+      community.general.rpm_ostree_pkg:
+        name:
+          - tmux
+          - htop
+          - git
+          - cockpit
+          - cockpit-podman
+          - cockpit-storaged
+          - cockpit-ostree
+        state: present
+      register: package_result
+
+    - name: Reboot system to enable new packages
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: upgrade_result.changed or package_result.changed
+
+    - name: Ensure Cockpit socket is started and enabled
+      ansible.builtin.systemd:
+        name: cockpit.socket
+        state: started
+        enabled: true
+
+    - name: Allow access to Cockpit
+      ansible.posix.firewalld:
+        service: cockpit
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Enable automatic downloading and staging of updates followed by a reboot
+      community.general.ini_file:
+        path: /etc/rpm-ostreed.conf
+        section: Daemon
+        option: AutomaticUpdatePolicy
+        value: apply
+        no_extra_spaces: true
+        create: false
+      register: rpm_ostreed_conf_result
+
+    - name: Reload service rpm-ostreed
+      ansible.builtin.systemd:
+        name: rpm-ostreed
+        state: reloaded
+      when: rpm_ostreed_conf_result.changed
+
+    - name: Enable a timer unit for rpm-ostreed-automatic
+      ansible.builtin.systemd:
+        name: rpm-ostreed-automatic.timer
+        state: started
+        enabled: true

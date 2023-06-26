@@ -1,0 +1,15 @@
+all:
+  children:
+    edge:
+      vars:
+        ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+        ansible_ssh_user: root
+      hosts:
+        rpi4iot1:
+          ansible_host: 192.168.100.31
+        rpi4iot2:
+          ansible_host: 192.168.100.32
+        rpi4iot3:
+          ansible_host: 192.168.100.33
+        rpi4iot4:
+          ansible_host: 192.168.100.34

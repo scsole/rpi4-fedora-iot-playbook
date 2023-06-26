@@ -1,0 +1,5 @@
+### Custom ###
+public_keys/*
+
+### Ansible ###
+*.retry
